@@ -2,8 +2,6 @@ package cli;
 
 import com.datastax.driver.core.*;
 import org.json.JSONObject;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.BufferedWriter;
 import java.io.FileWriter;
@@ -12,39 +10,36 @@ import java.util.*;
 
 import static utils.Constants.*;
 
-public class CassandraMessagesDumpThread implements Runnable {
-
-    private static Logger log = LoggerFactory.getLogger(CassandraMessagesDumpThread.class);
+class CassandraMessagesDump {
 
     private Cluster cluster;
     private Session session;
-    private String inputAccountNumber;
+    private String partitionColumnValue;
     private String cassandraKeyspace;
     private String outputFilePath;
     private String cassandraHost;
-    private String accountColumnName;
+    private String partitionColumnName;
     private Set<String> tableNamesSet = new HashSet<>();
     private List<String> tableStringList = new ArrayList<>();
 
-    CassandraMessagesDumpThread(MessagesDumpApp messagesDumpApp) {
+    CassandraMessagesDump(MessagesDumpApp messagesDumpApp) {
         Properties properties = messagesDumpApp.getProperties();
 
-        this.inputAccountNumber = properties.getProperty(INPUT_ACCOUNT_NUMBER);
+        this.partitionColumnValue = properties.getProperty(CASSANDRA_PARTITION_COLUMN_VALUE);
         this.cassandraKeyspace = properties.getProperty(CASSANDRA_KEYSPACE);
-        this.outputFilePath = properties.getProperty(OUTPUT_FILE_PATH);
+        this.outputFilePath = properties.getProperty(CASSANDRA_OUTPUT_FILE_PATH);
         this.cassandraHost = properties.getProperty(CASSANDRA_HOST);
-        this.accountColumnName = properties.getProperty(ACCOUNT_COLUMN_NAME);
+        this.partitionColumnName = properties.getProperty(CASSANDRA_PARTITION_COLUMN_NAME);
     }
 
-    @Override
-    public void run() {
+    void run() {
         try {
             connectCassandraCluster();
             filterTableNames();
             dumpTablesData();
             displayDumpInFile();
         } catch (Exception e) {
-            log.error(e.getMessage(), e);
+            System.out.println(e.getMessage());
         } finally {
             if (session != null) {
                 session.close();
@@ -57,10 +52,10 @@ public class CassandraMessagesDumpThread implements Runnable {
     }
 
     private void connectCassandraCluster() {
-        log.info("Connecting Cassandra Cluster on " + cassandraHost + "...");
+        System.out.println("Connecting Cassandra Cluster on " + cassandraHost + "...");
         cluster = Cluster.builder().addContactPoint(cassandraHost).build();
         session = cluster.connect();
-        log.info("Cassandra Cluster Connected Successfully...");
+        System.out.println("Cassandra Cluster Connected Successfully...");
     }
 
     private void filterTableNames() {
@@ -70,15 +65,15 @@ public class CassandraMessagesDumpThread implements Runnable {
         for (TableMetadata tm : tablesMetadata) {
 
             String tableName = tm.getName();
-            log.info("Table name:" + tableName);
+            System.out.println("Table name:" + tableName);
 
             Collection<ColumnMetadata> columnsMetadata = tm.getColumns();
 
             for (ColumnMetadata cm : columnsMetadata) {
                 String columnName = cm.getName().toLowerCase();
-                log.info("Column name:" + columnName);
+                System.out.println("Column name:" + columnName);
 
-                if (columnName.equals(accountColumnName)) {
+                if (columnName.equals(partitionColumnName)) {
                     tableNamesSet.add(tableName);
                 }
             }
@@ -86,30 +81,33 @@ public class CassandraMessagesDumpThread implements Runnable {
     }
 
     private void dumpTablesData() {
-        log.info("inputAccountNumber = " + inputAccountNumber);
+        System.out.println("partitionColumnValue = " + partitionColumnValue);
 
         for (String tableName : tableNamesSet) {
             JSONObject tableString = new JSONObject();
-            String cqlQuery = "select * from " + cassandraKeyspace + "." + tableName + " where " + accountColumnName + "=" +
-                    Integer.parseInt(inputAccountNumber);
+            String cqlQuery = "select * from " + cassandraKeyspace + "." + tableName + " where " + partitionColumnName + "=" +
+                    Integer.parseInt(partitionColumnValue);
 
-            log.info("Executing CQL Query :: " + cqlQuery);
+            System.out.println("Executing CQL Query :: " + cqlQuery);
             ResultSet resultSet = session.execute(cqlQuery);
 
             List<Row> rowList = resultSet.all();
             int rowCount = rowList.size();
             if (rowCount > 0) {
-                JSONObject rowString = new JSONObject();
+                List<JSONObject> parentRowList = new ArrayList<>();
                 ColumnDefinitions columnDefinitions = resultSet.getColumnDefinitions();
                 int columnsCount = columnDefinitions.size();
 
                 for (Row row : rowList) {
+                    JSONObject rowString = new JSONObject();
                     for (int j = 0; j < columnsCount; j++) {
                         rowString.put(columnDefinitions.getName(j), row.getObject(j));
                     }
+
+                    parentRowList.add(rowString);
                 }
 
-                tableString.put(tableName, rowString);
+                tableString.put(tableName, parentRowList);
             }
 
             tableStringList.add(tableString.toString());
@@ -117,7 +115,7 @@ public class CassandraMessagesDumpThread implements Runnable {
     }
 
     private void displayDumpInFile() {
-        String filePath = outputFilePath + CassandraMessagesDumpThread.class.getSimpleName() + "-"
+        String filePath = outputFilePath + CassandraMessagesDump.class.getSimpleName() + "-"
                 + System.currentTimeMillis() + ".json";
 
         try (BufferedWriter bufferedWriter = new BufferedWriter(new FileWriter(filePath))) {
@@ -126,7 +124,7 @@ public class CassandraMessagesDumpThread implements Runnable {
                 bufferedWriter.newLine();
             }
         } catch (IOException e) {
-            log.error(e.getMessage(), e);
+            System.out.println(e.getMessage());
         }
     }
 }

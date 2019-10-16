@@ -16,8 +16,8 @@ public class MessagesDumpApp {
         MessagesDumpApp messagesDumpApp = new MessagesDumpApp();
         messagesDumpApp.loadPropertyFile(args[0]);
 
-        // messagesDumpApp.startKafkaMessagesDumpThread();
-        messagesDumpApp.startCassandraMessagesDumpThread();
+        messagesDumpApp.startKafkaMessagesDump();
+        messagesDumpApp.startCassandraMessagesDump();
     }
 
     private void loadPropertyFile(String propertyFilePath) throws IOException {
@@ -31,14 +31,12 @@ public class MessagesDumpApp {
         }
     }
 
-    private void startKafkaMessagesDumpThread() {
-        Thread kafkaMessagesDumpThread = new Thread(new KafkaMessagesDumpThread(this));
-        kafkaMessagesDumpThread.start();
+    private void startKafkaMessagesDump() throws IOException {
+        new KafkaMessagesDump(this).run();
     }
 
-    private void startCassandraMessagesDumpThread() {
-        Thread cassandraMessagesDumpThread = new Thread(new CassandraMessagesDumpThread(this));
-        cassandraMessagesDumpThread.start();
+    private void startCassandraMessagesDump() {
+        new CassandraMessagesDump(this).run();
     }
 
     Properties getProperties() {
