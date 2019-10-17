@@ -1,5 +1,6 @@
 package cli;
 
+import com.cedarsoftware.util.io.JsonWriter;
 import com.datastax.driver.core.*;
 import org.json.JSONObject;
 
@@ -36,8 +37,8 @@ class CassandraMessagesDump {
         try {
             connectCassandraCluster();
             filterTableNames();
-            dumpTablesData();
-            displayDumpInFile();
+            prepareTablesDumpData();
+            dumpDataInFile();
         } catch (Exception e) {
             System.out.println(e.getMessage());
         } finally {
@@ -65,13 +66,11 @@ class CassandraMessagesDump {
         for (TableMetadata tm : tablesMetadata) {
 
             String tableName = tm.getName();
-            System.out.println("Table name:" + tableName);
 
             Collection<ColumnMetadata> columnsMetadata = tm.getColumns();
 
             for (ColumnMetadata cm : columnsMetadata) {
                 String columnName = cm.getName().toLowerCase();
-                System.out.println("Column name:" + columnName);
 
                 if (columnName.equals(partitionColumnName)) {
                     tableNamesSet.add(tableName);
@@ -80,15 +79,12 @@ class CassandraMessagesDump {
         }
     }
 
-    private void dumpTablesData() {
-        System.out.println("partitionColumnValue = " + partitionColumnValue);
-
+    private void prepareTablesDumpData() {
         for (String tableName : tableNamesSet) {
             JSONObject tableString = new JSONObject();
             String cqlQuery = "select * from " + cassandraKeyspace + "." + tableName + " where " + partitionColumnName + "=" +
                     Integer.parseInt(partitionColumnValue);
 
-            System.out.println("Executing CQL Query :: " + cqlQuery);
             ResultSet resultSet = session.execute(cqlQuery);
 
             List<Row> rowList = resultSet.all();
@@ -114,13 +110,13 @@ class CassandraMessagesDump {
         }
     }
 
-    private void displayDumpInFile() {
+    private void dumpDataInFile() {
         String filePath = outputFilePath + CassandraMessagesDump.class.getSimpleName() + "-"
                 + System.currentTimeMillis() + ".json";
 
         try (BufferedWriter bufferedWriter = new BufferedWriter(new FileWriter(filePath))) {
             for (String tableDump : tableStringList) {
-                bufferedWriter.write(tableDump);
+                bufferedWriter.write(JsonWriter.formatJson(tableDump));
                 bufferedWriter.newLine();
             }
         } catch (IOException e) {

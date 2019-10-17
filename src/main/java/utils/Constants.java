@@ -12,7 +12,10 @@ public class Constants {
     public final static String KAFKA_TOPICS = "kafka.topics";
     public final static String KAFKA_GROUP_ID = "kafka.group.id";
     public final static String KAFKA_PARTITION_KEY = "kafka.partition.key";
+    public final static String KAFKA_PARTITION_OFFSET = "kafka.partition.offset";
+    public final static String KAFKA_PARTITION_TIMESTAMP = "kafka.partition.timestamp";
     public final static String KAFKA_OUTPUT_FILE_PATH = "kafka.output.file.path";
+    public final static String KAFKA_POLL_DURATION_MS = "kafka.poll.duration.ms";
 
     // Cassandra Params
     public final static String CASSANDRA_HOST = "cassandra.host";

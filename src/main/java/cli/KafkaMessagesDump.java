@@ -1,5 +1,7 @@
 package cli;
 
+import com.cedarsoftware.util.io.JsonWriter;
+import org.apache.commons.lang.StringUtils;
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -19,6 +21,9 @@ class KafkaMessagesDump {
     private String partitionKey;
     private String outputFilePath;
     private String topics;
+    private String offset;
+    private String timestamp;
+    private String poll;
     private Set<String> topicsSet = new HashSet<>();
     private List<JSONObject> jsonObjectList = new ArrayList<>();
 
@@ -30,6 +35,9 @@ class KafkaMessagesDump {
         this.partitionKey = properties.getProperty(KAFKA_PARTITION_KEY);
         this.outputFilePath = properties.getProperty(KAFKA_OUTPUT_FILE_PATH);
         this.topics = properties.getProperty(KAFKA_TOPICS);
+        this.offset = properties.getProperty(KAFKA_PARTITION_OFFSET);
+        this.timestamp = properties.getProperty(KAFKA_PARTITION_TIMESTAMP);
+        this.poll = properties.getProperty(KAFKA_POLL_DURATION_MS);
 
         String bootstrapServers = properties.getProperty(KAFKA_BOOTSTRAP_SERVERS);
         String groupId = properties.getProperty(KAFKA_GROUP_ID);
@@ -45,6 +53,7 @@ class KafkaMessagesDump {
 
     void run() throws IOException {
         populateTopicsSet();
+        prepareTopicMessagesDump();
         dumpTopicMessages();
     }
 
@@ -57,43 +66,52 @@ class KafkaMessagesDump {
         }
     }
 
-    private void dumpTopicMessages() throws IOException {
+    private void prepareTopicMessagesDump() {
         KafkaConsumer<String, String> consumer = new KafkaConsumer<>(consumerProperties);
 
-        String filePath = outputFilePath + KafkaMessagesDump.class.getSimpleName() + "-"
-                + System.currentTimeMillis() + ".json";
+        for (String topic : topicsSet) {
+            TopicPartition topicPartition = new TopicPartition(topic, partition(topic, partitionKey, consumer));
+            consumer.assign(Collections.singleton(topicPartition));
 
-        try (BufferedWriter bufferedWriter = new BufferedWriter(new FileWriter(filePath))) {
+            // filter by offset or timestamp
+            if (!StringUtils.isEmpty(offset)) {
+                filterByOffSet(consumer, topicPartition);
+            } else if (!StringUtils.isEmpty(timestamp)) {
+                filterByTimestamp(consumer, topicPartition);
+            }
 
-            for (String topic : topicsSet) {
-                TopicPartition topicPartition = new TopicPartition(topic, partition(topic, partitionKey, consumer));
-                consumer.assign(Collections.singleton(topicPartition));
+            // poll for data
+            ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(Long.parseLong(poll)));
 
-                // OffsetAndTimestamp offsetAndTimestamp = new OffsetAndTimestamp(0, );
+            for (ConsumerRecord<String, String> record : records) {
+                if (record.key().equals(partitionKey)) {
 
-                // poll for new data
-                ConsumerRecords<String, String> records =
-                        consumer.poll(Duration.ofMillis(100)); // new in Kafka 2.0.0
+                    JSONObject jsonObject = new JSONObject();
+                    jsonObject.put("Topic", record.topic())
+                            .put("Partition", record.partition())
+                            .put("Offset", record.offset())
+                            .put("Key", record.key())
+                            .put("Value", record.value())
+                            .put("Timestamp", record.timestamp());
 
-                for (ConsumerRecord<String, String> record : records) {
-                    if (record.key().equals(partitionKey)) {
-
-                        JSONObject jsonObject = new JSONObject();
-                        jsonObject.put("Topic", record.partition())
-                                .put("Partition", record.offset())
-                                .put("Offset", record.offset())
-                                .put("Key", record.key())
-                                .put("Value", record.value());
-
-                        jsonObjectList.add(jsonObject);
-                    }
+                    jsonObjectList.add(jsonObject);
                 }
             }
+        }
+    }
 
-            for (JSONObject json : jsonObjectList) {
-                bufferedWriter.write(json.toString());
-                bufferedWriter.newLine();
-            }
+    private void filterByOffSet(KafkaConsumer<String, String> consumer, TopicPartition topicPartition) {
+        consumer.seek(topicPartition, Long.parseLong(offset));
+    }
+
+    private void filterByTimestamp(KafkaConsumer<String, String> consumer, TopicPartition topicPartition) {
+        Map<TopicPartition, Long> timestampMap = new HashMap<>();
+        timestampMap.put(topicPartition, Long.parseLong(timestamp));
+
+        Map<TopicPartition, OffsetAndTimestamp> offsetAndTimestampMap = consumer.offsetsForTimes(timestampMap);
+
+        for (Map.Entry<TopicPartition, OffsetAndTimestamp> offsetAndTimestamp : offsetAndTimestampMap.entrySet()) {
+            consumer.seek(topicPartition, offsetAndTimestamp.getValue().offset());
         }
     }
 
@@ -107,5 +125,17 @@ class KafkaMessagesDump {
 
         // hash the keyBytes to choose a partition
         return Utils.toPositive(Utils.murmur2(key.getBytes())) % numPartitions;
+    }
+
+    private void dumpTopicMessages() throws IOException {
+        String filePath = outputFilePath + KafkaMessagesDump.class.getSimpleName() + "-"
+                + System.currentTimeMillis() + ".json";
+
+        try (BufferedWriter bufferedWriter = new BufferedWriter(new FileWriter(filePath))) {
+            for (JSONObject json : jsonObjectList) {
+                bufferedWriter.write(JsonWriter.formatJson(json.toString()));
+                bufferedWriter.newLine();
+            }
+        }
     }
 }
